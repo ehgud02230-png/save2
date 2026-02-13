@@ -13,30 +13,6 @@ export function Header() {
 
         {/* 네비게이션 메뉴 */}
         <nav className="flex items-center space-x-6 flex-1 justify-center">
-          <Link 
-            href="/" 
-            className="text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Home
-          </Link>
-          <Link 
-            href="/page1" 
-            className="text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Page1
-          </Link>
-          <Link 
-            href="/page2" 
-            className="text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Page2
-          </Link>
-          <Link
-            href="/page3"
-            className="text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Page3
-          </Link>
           <Link
             href="/chat"
             className="text-gray-600 hover:text-gray-900 transition-colors"
