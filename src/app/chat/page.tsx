@@ -114,6 +114,9 @@ export default function ChatPage() {
         }),
       })
       const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || `서버 오류 (${res.status})`)
+      }
       setMessages((prev) => {
         const updated = [...prev]
         // 파일 내용이 포함된 실제 메시지로 히스토리 업데이트 (후속 대화에서도 파일 내용 유지)
@@ -125,10 +128,11 @@ export default function ChatPage() {
         }
         return [...updated, { role: 'assistant', content: data.content }]
       })
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '오류가 발생했습니다. 다시 시도해주세요.'
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: '오류가 발생했습니다. 다시 시도해주세요.' },
+        { role: 'assistant', content: `오류: ${msg}` },
       ])
     } finally {
       setLoading(false)

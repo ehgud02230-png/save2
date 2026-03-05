@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import mammoth from 'mammoth'
-import * as XLSX from 'xlsx'
-import JSZip from 'jszip'
-import { PDFParse } from 'pdf-parse'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -20,6 +16,7 @@ type ProcessedFile =
   | { kind: 'text'; text: string }
 
 async function extractPptxText(buffer: Buffer): Promise<string> {
+  const JSZip = (await import('jszip')).default
   const zip = await JSZip.loadAsync(buffer)
   const slideFiles = Object.keys(zip.files)
     .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
@@ -50,9 +47,22 @@ async function processFile(file: FileAttachment): Promise<ProcessedFile> {
   }
 
   if (file.type === 'application/pdf') {
-    const parser = new PDFParse({ data: buffer })
-    const result = await parser.getText()
-    return { kind: 'text', text: `[PDF 파일: ${file.name}]\n${result.text}` }
+    try {
+      const pdfParse = await import('pdf-parse')
+      const fn = (pdfParse as unknown as { default?: (b: Buffer) => Promise<{ text: string }> }).default
+      if (typeof fn === 'function') {
+        const result = await fn(buffer)
+        return { kind: 'text', text: `[PDF 파일: ${file.name}]\n${result.text}` }
+      }
+      // pdf-parse v2 class-based API
+      const { PDFParse } = pdfParse as unknown as { PDFParse: new (o: { data: Buffer }) => { getText(): Promise<{ text: string }> } }
+      const parser = new PDFParse({ data: buffer })
+      const result = await parser.getText()
+      return { kind: 'text', text: `[PDF 파일: ${file.name}]\n${result.text}` }
+    } catch (err) {
+      console.error('[pdf-parse] error:', err)
+      return { kind: 'text', text: `[PDF 파일: ${file.name}] (텍스트 추출 실패)` }
+    }
   }
 
   if (
@@ -68,6 +78,7 @@ async function processFile(file: FileAttachment): Promise<ProcessedFile> {
     file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
     file.name.endsWith('.docx')
   ) {
+    const mammoth = await import('mammoth')
     const result = await mammoth.extractRawText({ buffer })
     return { kind: 'text', text: `[Word 파일: ${file.name}]\n${result.value}` }
   }
@@ -76,6 +87,7 @@ async function processFile(file: FileAttachment): Promise<ProcessedFile> {
     file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
     file.name.endsWith('.xlsx')
   ) {
+    const XLSX = await import('xlsx')
     const workbook = XLSX.read(buffer)
     const sheets = workbook.SheetNames.map((name) => {
       const sheet = workbook.Sheets[name]
@@ -96,102 +108,89 @@ async function processFile(file: FileAttachment): Promise<ProcessedFile> {
 }
 
 export async function POST(req: NextRequest) {
-  const { messages, files } = await req.json()
+  try {
+    const { messages, files } = await req.json()
 
-  // ── 1. 수신된 파일 목록 확인 ──────────────────────────────────────
-  console.log('[chat] 수신된 files:', files?.length ?? 0, '개',
-    files?.map((f: FileAttachment) => `${f.name}(${f.type}, base64 len:${f.base64?.length})`))
+    console.log('[chat] 수신된 files:', files?.length ?? 0, '개',
+      files?.map((f: FileAttachment) => `${f.name}(${f.type})`))
 
-  const processedFiles: ProcessedFile[] =
-    files && files.length > 0
-      ? await Promise.all(
-          files.map(async (f: FileAttachment) => {
-            try {
-              return await processFile(f)
-            } catch (err) {
-              console.error(`[chat] processFile 실패 - ${f.name}:`, err)
-              return { kind: 'text' as const, text: `[파일 처리 오류: ${f.name}]` }
-            }
-          })
-        )
-      : []
+    const processedFiles: ProcessedFile[] =
+      files && files.length > 0
+        ? await Promise.all(
+            files.map(async (f: FileAttachment) => {
+              try {
+                return await processFile(f)
+              } catch (err) {
+                console.error(`[chat] processFile 실패 - ${f.name}:`, err)
+                return { kind: 'text' as const, text: `[파일 처리 오류: ${f.name}]` }
+              }
+            })
+          )
+        : []
 
-  // ── 2. 파싱 결과 확인 ─────────────────────────────────────────────
-  console.log('[chat] processedFiles:',
-    processedFiles.map((f) =>
-      f.kind === 'text'
-        ? `text(${f.text.slice(0, 100)}...)`
-        : `image(${f.mediaType})`
+    console.log('[chat] processedFiles:',
+      processedFiles.map((f) =>
+        f.kind === 'text' ? `text(${f.text.slice(0, 80)}...)` : `image(${f.mediaType})`
+      )
     )
-  )
 
-  // Collect text from non-image files
-  const textFilesContent = processedFiles
-    .filter((f): f is Extract<ProcessedFile, { kind: 'text' }> => f.kind === 'text')
-    .map((f) => f.text)
-    .join('\n\n')
+    const textFilesContent = processedFiles
+      .filter((f): f is Extract<ProcessedFile, { kind: 'text' }> => f.kind === 'text')
+      .map((f) => f.text)
+      .join('\n\n')
 
-  // Build OpenAI message history
-  type ContentPart =
-    | OpenAI.Chat.ChatCompletionContentPartText
-    | OpenAI.Chat.ChatCompletionContentPartImage
+    type ContentPart =
+      | OpenAI.Chat.ChatCompletionContentPartText
+      | OpenAI.Chat.ChatCompletionContentPartImage
 
-  type ApiMessage = {
-    role: 'user' | 'assistant'
-    content: string | ContentPart[]
-  }
+    type ApiMessage = {
+      role: 'user' | 'assistant'
+      content: string | ContentPart[]
+    }
 
-  const historyMessages: ApiMessage[] = messages.slice(0, -1).map(
-    (msg: { role: string; content: string }) => ({
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content,
+    const historyMessages: ApiMessage[] = messages.slice(0, -1).map(
+      (msg: { role: string; content: string }) => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+      })
+    )
+
+    const lastMessage = messages[messages.length - 1]
+    const messageText = textFilesContent
+      ? `${textFilesContent}\n\n${lastMessage.content}`
+      : lastMessage.content
+
+    const imageFiles = processedFiles.filter(
+      (f): f is Extract<ProcessedFile, { kind: 'image' }> => f.kind === 'image'
+    )
+
+    let currentContent: string | ContentPart[]
+    if (imageFiles.length > 0) {
+      const parts: ContentPart[] = imageFiles.map((f) => ({
+        type: 'image_url' as const,
+        image_url: { url: `data:${f.mediaType};base64,${f.data}` },
+      }))
+      parts.push({ type: 'text' as const, text: messageText })
+      currentContent = parts
+    } else {
+      currentContent = messageText
+    }
+
+    const allMessages: ApiMessage[] = [
+      ...historyMessages,
+      { role: 'user', content: currentContent },
+    ]
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: allMessages as OpenAI.Chat.ChatCompletionMessageParam[],
     })
-  )
 
-  // Build current message content
-  const lastMessage = messages[messages.length - 1]
-  const messageText = textFilesContent
-    ? `${textFilesContent}\n\n${lastMessage.content}`
-    : lastMessage.content
-
-  const imageFiles = processedFiles.filter(
-    (f): f is Extract<ProcessedFile, { kind: 'image' }> => f.kind === 'image'
-  )
-
-  let currentContent: string | ContentPart[]
-  if (imageFiles.length > 0) {
-    const parts: ContentPart[] = imageFiles.map((f) => ({
-      type: 'image_url' as const,
-      image_url: { url: `data:${f.mediaType};base64,${f.data}` },
-    }))
-    parts.push({ type: 'text' as const, text: messageText })
-    currentContent = parts
-  } else {
-    currentContent = messageText
+    const content = completion.choices[0].message.content
+    return NextResponse.json({ content, userMessage: messageText })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[chat] POST error:', message)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
-
-  const allMessages: ApiMessage[] = [
-    ...historyMessages,
-    { role: 'user', content: currentContent },
-  ]
-
-  // ── 3. API에 전달되는 최종 메시지 확인 ───────────────────────────
-  console.log('[chat] allMessages (마지막 메시지):',
-    JSON.stringify(
-      allMessages[allMessages.length - 1],
-      (key, val) =>
-        key === 'url' && typeof val === 'string' && val.startsWith('data:')
-          ? val.slice(0, 50) + '...[base64 truncated]'
-          : val
-    )
-  )
-
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: allMessages as OpenAI.Chat.ChatCompletionMessageParam[],
-  })
-
-  const content = completion.choices[0].message.content
-  // userMessage: 파일 내용이 포함된 실제 전송 텍스트 (히스토리 보존용)
-  return NextResponse.json({ content, userMessage: messageText })
 }
