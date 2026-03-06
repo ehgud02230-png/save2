@@ -208,7 +208,7 @@ export async function POST(req: NextRequest) {
     // ── OpenAI API 호출 ────────────────────────────────────────────────────────
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     const result = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5.4',
       messages: allMessages as OpenAI.ChatCompletionMessageParam[],
     })
     const message = result.choices[0].message
