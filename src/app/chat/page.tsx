@@ -7,8 +7,9 @@ import { Paperclip, X, FileText, FileSpreadsheet, Presentation, File } from 'luc
 
 interface Message {
   role: 'user' | 'assistant'
-  content: string          // 말풍선에 표시되는 텍스트
-  apiContent?: string      // API에 전송되는 실제 내용 (파일 텍스트 포함), 없으면 content 사용
+  content: string               // 말풍선에 표시되는 텍스트
+  apiContent?: string           // API에 전송되는 실제 내용 (파일 텍스트 포함), 없으면 content 사용
+  reasoning_details?: unknown   // 모델의 추론 과정 — 다음 턴 API 요청에 그대로 전달
   attachments?: { name: string; type: string; previewUrl?: string }[]
 }
 
@@ -183,14 +184,21 @@ export default function ChatPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: newMessages.map((m) => ({ role: m.role, content: m.apiContent ?? m.content })),
+          messages: newMessages.map((m) => ({
+            role: m.role,
+            content: m.apiContent ?? m.content,
+            // 어시스턴트 메시지의 reasoning_details를 그대로 전달 (연속 추론 유지)
+            ...(m.role === 'assistant' && m.reasoning_details
+              ? { reasoning_details: m.reasoning_details }
+              : {}),
+          })),
           files: filesToSend.map((f) => ({ name: f.name, type: f.type, base64: f.base64 })),
         }),
       })
 
       // text()로 먼저 읽어 non-JSON 응답(Vercel 413 등) 안전 처리
       const text = await res.text()
-      let data: { content?: string; userMessage?: string; error?: string }
+      let data: { content?: string; userMessage?: string; error?: string; reasoning_details?: unknown }
       try {
         data = JSON.parse(text)
       } catch {
@@ -216,7 +224,14 @@ export default function ChatPage() {
             apiContent: data.userMessage,
           }
         }
-        return [...updated, { role: 'assistant', content: data.content ?? '' }]
+        return [
+          ...updated,
+          {
+            role: 'assistant' as const,
+            content: data.content ?? '',
+            reasoning_details: data.reasoning_details, // 다음 턴 API 전달용으로 보존
+          },
+        ]
       })
     } catch (err) {
       alert(err instanceof Error ? err.message : '오류가 발생했습니다. 다시 시도해주세요.')
