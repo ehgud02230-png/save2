@@ -110,7 +110,7 @@ async function processFile(file: FileAttachment): Promise<ProcessedFile> {
 // Vercel 서버리스 최대 실행 시간 (초)
 export const maxDuration = 60
 
-const MAX_BODY_BYTES = 4 * 1024 * 1024 // 4MB
+const MAX_BODY_BYTES = 4.5 * 1024 * 1024 // Vercel 무료 플랜 최대치
 
 export async function POST(req: NextRequest) {
   try {
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
     const contentLength = req.headers.get('content-length')
     if (contentLength && parseInt(contentLength) > MAX_BODY_BYTES) {
       return NextResponse.json(
-        { error: `요청 크기가 너무 큽니다. 파일 총 크기를 3MB 이하로 줄여주세요. (현재: ${(parseInt(contentLength) / 1024 / 1024).toFixed(1)}MB)` },
+        { error: `요청 크기가 너무 큽니다. 파일 총 크기를 4MB 이하로 줄여주세요. (현재: ${(parseInt(contentLength) / 1024 / 1024).toFixed(1)}MB)` },
         { status: 413 }
       )
     }
@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
       files = body.files
     } catch {
       return NextResponse.json(
-        { error: '요청 크기가 너무 큽니다. 파일 총 크기를 3MB 이하로 줄여주세요.' },
+        { error: '요청 크기가 너무 큽니다. 파일 총 크기를 4MB 이하로 줄여주세요.' },
         { status: 413 }
       )
     }
