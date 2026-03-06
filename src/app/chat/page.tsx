@@ -7,7 +7,8 @@ import { Paperclip, X, FileText, FileSpreadsheet, Presentation, File } from 'luc
 
 interface Message {
   role: 'user' | 'assistant'
-  content: string
+  content: string          // 말풍선에 표시되는 텍스트
+  apiContent?: string      // API에 전송되는 실제 내용 (파일 텍스트 포함), 없으면 content 사용
   attachments?: { name: string; type: string; previewUrl?: string }[]
 }
 
@@ -109,7 +110,7 @@ export default function ChatPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
+          messages: newMessages.map((m) => ({ role: m.role, content: m.apiContent ?? m.content })),
           files: filesToSend.map((f) => ({ name: f.name, type: f.type, base64: f.base64 })),
         }),
       })
@@ -119,11 +120,11 @@ export default function ChatPage() {
       }
       setMessages((prev) => {
         const updated = [...prev]
-        // 파일 내용이 포함된 실제 메시지로 히스토리 업데이트 (후속 대화에서도 파일 내용 유지)
+        // 파일 내용은 apiContent에만 저장 (말풍선엔 표시 안 함, API 히스토리에만 사용)
         if (data.userMessage && data.userMessage !== userText) {
           updated[updated.length - 1] = {
             ...updated[updated.length - 1],
-            content: data.userMessage,
+            apiContent: data.userMessage,
           }
         }
         return [...updated, { role: 'assistant', content: data.content }]
