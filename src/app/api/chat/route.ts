@@ -107,9 +107,34 @@ async function processFile(file: FileAttachment): Promise<ProcessedFile> {
   return { kind: 'text', text: `[파일: ${file.name}]` }
 }
 
+// Vercel 서버리스 최대 실행 시간 (초)
+export const maxDuration = 60
+
+const MAX_BODY_BYTES = 4 * 1024 * 1024 // 4MB
+
 export async function POST(req: NextRequest) {
   try {
-    const { messages, files } = await req.json()
+    // Content-Length 헤더로 사전 크기 검사 (Vercel이 거부하기 전에 처리)
+    const contentLength = req.headers.get('content-length')
+    if (contentLength && parseInt(contentLength) > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { error: `요청 크기가 너무 큽니다. 파일 총 크기를 3MB 이하로 줄여주세요. (현재: ${(parseInt(contentLength) / 1024 / 1024).toFixed(1)}MB)` },
+        { status: 413 }
+      )
+    }
+
+    let messages: { role: string; content: string }[]
+    let files: FileAttachment[]
+    try {
+      const body = await req.json()
+      messages = body.messages
+      files = body.files
+    } catch {
+      return NextResponse.json(
+        { error: '요청 크기가 너무 큽니다. 파일 총 크기를 3MB 이하로 줄여주세요.' },
+        { status: 413 }
+      )
+    }
 
     console.log('[chat] 수신된 files:', files?.length ?? 0, '개',
       files?.map((f: FileAttachment) => `${f.name}(${f.type})`))

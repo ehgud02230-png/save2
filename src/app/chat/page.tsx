@@ -20,6 +20,11 @@ interface AttachedFile {
   previewUrl?: string
 }
 
+// 파일 1개 최대 크기: 4MB (base64 변환 후 ~5.3MB → 다른 파일과 합산 고려해 보수적으로 설정)
+const MAX_FILE_SIZE = 4 * 1024 * 1024
+// 전체 첨부파일 base64 합산 최대 크기: 3MB (JSON 오버헤드 포함 Vercel 4.5MB 제한 내)
+const MAX_TOTAL_BASE64 = 3 * 1024 * 1024
+
 const ACCEPT_TYPES =
   'image/jpeg,image/png,image/webp,application/pdf,text/plain,text/csv,.txt,.csv,.docx,.xlsx,.pptx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation'
 
@@ -65,6 +70,12 @@ export default function ChatPage() {
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files || [])
+    const oversized = selected.filter((f) => f.size > MAX_FILE_SIZE)
+    if (oversized.length > 0) {
+      alert(`파일 크기 초과: ${oversized.map((f) => f.name).join(', ')}\n파일 1개당 최대 4MB까지 첨부 가능합니다.`)
+      e.target.value = ''
+      return
+    }
     for (const file of selected) {
       const base64 = await readFileAsBase64(file)
       const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
@@ -106,6 +117,14 @@ export default function ChatPage() {
     setLoading(true)
 
     try {
+      // 전송 전 총 base64 크기 검사
+      const totalBase64Size = filesToSend.reduce((sum, f) => sum + f.base64.length, 0)
+      if (totalBase64Size > MAX_TOTAL_BASE64) {
+        throw new Error(
+          `첨부파일 총 크기가 너무 큽니다. (${(totalBase64Size / 1024 / 1024).toFixed(1)}MB)\n파일 총합 3MB 이하로 줄여주세요.`
+        )
+      }
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -114,7 +133,19 @@ export default function ChatPage() {
           files: filesToSend.map((f) => ({ name: f.name, type: f.type, base64: f.base64 })),
         }),
       })
-      const data = await res.json()
+
+      // res.json() 대신 text()로 먼저 읽어 파싱 실패 방지 (Vercel 413 등 non-JSON 응답 대응)
+      const text = await res.text()
+      let data: { content?: string; userMessage?: string; error?: string }
+      try {
+        data = JSON.parse(text)
+      } catch {
+        if (res.status === 413 || text.includes('Too Large') || text.includes('Entity')) {
+          throw new Error('파일 크기가 너무 큽니다. 파일을 줄이거나 나눠서 전송해주세요.')
+        }
+        throw new Error(`서버 오류 (${res.status})`)
+      }
+
       if (!res.ok) {
         throw new Error(data.error || `서버 오류 (${res.status})`)
       }
@@ -127,7 +158,7 @@ export default function ChatPage() {
             apiContent: data.userMessage,
           }
         }
-        return [...updated, { role: 'assistant', content: data.content }]
+        return [...updated, { role: 'assistant', content: data.content ?? '' }]
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : '오류가 발생했습니다. 다시 시도해주세요.'
