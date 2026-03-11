@@ -391,7 +391,7 @@ export async function POST(req: NextRequest) {
         ...allMessages,
       ] as OpenAI.ChatCompletionMessageParam[],
       temperature: 0.3,
-      max_tokens: 1500,
+      max_completion_tokens: 1500,
     })
     const message = result.choices[0].message
 
