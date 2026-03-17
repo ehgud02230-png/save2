@@ -105,9 +105,12 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const currentIdRef = useRef<string | null>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
 
   // 초기 로드
   useEffect(() => {
@@ -155,6 +158,31 @@ export default function ChatPage() {
     setMessages(conv.messages)
     setInput('')
     setAttachedFiles([])
+  }
+
+  const startEditTitle = (conv: Conversation, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingId(conv.id)
+    setEditingTitle(conv.title)
+    setTimeout(() => titleInputRef.current?.select(), 0)
+  }
+
+  const commitEditTitle = () => {
+    if (!editingId) return
+    const trimmed = editingTitle.trim()
+    if (trimmed) {
+      setConversations((prev) => {
+        const updated = prev.map((c) => (c.id === editingId ? { ...c, title: trimmed } : c))
+        saveConversations(updated)
+        return updated
+      })
+    }
+    setEditingId(null)
+  }
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') commitEditTitle()
+    if (e.key === 'Escape') setEditingId(null)
   }
 
   const deleteConversation = (id: string, e: React.MouseEvent) => {
@@ -296,18 +324,39 @@ export default function ChatPage() {
           {conversations.map((conv) => (
             <div
               key={conv.id}
-              onClick={() => selectConversation(conv)}
+              onClick={() => editingId !== conv.id && selectConversation(conv)}
               className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
                 currentId === conv.id ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
-              <span className="flex-1 truncate">{conv.title}</span>
-              <button
-                onClick={(e) => deleteConversation(conv.id, e)}
-                className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-gray-400 hover:text-red-500 transition-all"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              {editingId === conv.id ? (
+                <input
+                  ref={titleInputRef}
+                  value={editingTitle}
+                  onChange={(e) => setEditingTitle(e.target.value)}
+                  onBlur={commitEditTitle}
+                  onKeyDown={handleTitleKeyDown}
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex-1 bg-white border border-gray-300 rounded px-1.5 py-0.5 text-sm text-gray-900 outline-none min-w-0"
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className="flex-1 truncate"
+                  onDoubleClick={(e) => startEditTitle(conv, e)}
+                  title="더블클릭하여 제목 수정"
+                >
+                  {conv.title}
+                </span>
+              )}
+              {editingId !== conv.id && (
+                <button
+                  onClick={(e) => deleteConversation(conv.id, e)}
+                  className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-gray-400 hover:text-red-500 transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           ))}
         </div>
