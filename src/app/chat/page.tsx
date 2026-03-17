@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Paperclip, X, FileText, FileSpreadsheet, Presentation, File, Plus, Trash2 } from 'lucide-react'
+import { Paperclip, X, FileText, FileSpreadsheet, Presentation, File, Plus, Trash2, Pencil } from 'lucide-react'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -350,12 +350,22 @@ export default function ChatPage() {
                 </span>
               )}
               {editingId !== conv.id && (
-                <button
-                  onClick={(e) => deleteConversation(conv.id, e)}
-                  className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-gray-400 hover:text-red-500 transition-all"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-all">
+                  <button
+                    onClick={(e) => startEditTitle(conv, e)}
+                    className="flex-shrink-0 text-gray-400 hover:text-blue-500 transition-colors"
+                    title="제목 수정"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => deleteConversation(conv.id, e)}
+                    className="flex-shrink-0 text-gray-400 hover:text-red-500 transition-colors"
+                    title="대화 삭제"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               )}
             </div>
           ))}
