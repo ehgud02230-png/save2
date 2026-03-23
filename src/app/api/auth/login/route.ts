@@ -4,9 +4,6 @@ import { createToken, getUsers } from '@/lib/auth'
 export async function POST(req: NextRequest) {
   const { username, password } = await req.json()
   const users = getUsers()
-  console.log('[login] AUTH_USERS raw:', process.env.AUTH_USERS)
-  console.log('[login] parsed users:', Object.keys(users))
-  console.log('[login] attempt:', username, '/ match:', users[username] === password)
 
   if (!username || !password || users[username] !== password) {
     return NextResponse.json(

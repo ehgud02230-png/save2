@@ -23,7 +23,7 @@ export function verifyToken(token: string): string | null {
 }
 
 export function getUsers(): Record<string, string> {
-  const raw = process.env.AUTH_USERS ?? ''
+  const raw = process.env.AUTH_USERS ?? 'dmpkorea:dmpkorea!!'
   const users: Record<string, string> = {}
   for (const pair of raw.split(',')) {
     const idx = pair.indexOf(':')
