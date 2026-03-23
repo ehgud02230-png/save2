@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Paperclip, X, FileText, FileSpreadsheet, Presentation, File, Plus, Trash2, Pencil } from 'lucide-react'
+import { Paperclip, X, FileText, FileSpreadsheet, Presentation, File, Plus, Trash2, Pencil, LogOut } from 'lucide-react'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -27,7 +28,7 @@ interface AttachedFile {
   previewUrl?: string
 }
 
-const STORAGE_KEY = 'abidding-conversations'
+const storageKey = (username: string) => `abidding-conversations-${username}`
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const MAX_TOTAL_BASE64 = 4 * 1024 * 1024
 const ACCEPT_TYPES =
@@ -80,25 +81,27 @@ function compressImage(file: File): Promise<{ base64: string; type: string }> {
   })
 }
 
-function loadConversations(): Conversation[] {
+function loadConversations(username: string): Conversation[] {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(storageKey(username))
     return raw ? JSON.parse(raw) : []
   } catch {
     return []
   }
 }
 
-function saveConversations(convs: Conversation[]) {
+function saveConversations(username: string, convs: Conversation[]) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(convs))
+    localStorage.setItem(storageKey(username), JSON.stringify(convs))
   } catch {
     // 저장 공간 부족 등 무시
   }
 }
 
 export default function ChatPage() {
+  const router = useRouter()
+  const [username, setUsername] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -112,10 +115,24 @@ export default function ChatPage() {
   const currentIdRef = useRef<string | null>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
 
-  // 초기 로드
+  // 로그인 사용자 확인 및 대화 로드
   useEffect(() => {
-    setConversations(loadConversations())
-  }, [])
+    fetch('/api/auth/me')
+      .then((res) => {
+        if (!res.ok) { router.push('/login'); return null }
+        return res.json()
+      })
+      .then((data) => {
+        if (!data) return
+        setUsername(data.username)
+        setConversations(loadConversations(data.username))
+      })
+  }, [router])
+
+  const handleLogout = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+  }, [router])
 
   // currentId 변경 시 ref 동기화
   useEffect(() => {
@@ -124,7 +141,7 @@ export default function ChatPage() {
 
   // 메시지 변경 시 자동 저장
   useEffect(() => {
-    if (messages.length === 0) return
+    if (messages.length === 0 || !username) return
     const title = (messages.find((m) => m.role === 'user')?.content ?? '새 대화').slice(0, 30)
     setConversations((prev) => {
       const id = currentIdRef.current
@@ -137,10 +154,10 @@ export default function ChatPage() {
         setCurrentId(newId)
         updated = [{ id: newId, title, messages, createdAt: Date.now() }, ...prev]
       }
-      saveConversations(updated)
+      saveConversations(username, updated)
       return updated
     })
-  }, [messages])
+  }, [messages, username])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -173,7 +190,7 @@ export default function ChatPage() {
     if (trimmed) {
       setConversations((prev) => {
         const updated = prev.map((c) => (c.id === editingId ? { ...c, title: trimmed } : c))
-        saveConversations(updated)
+        if (username) saveConversations(username, updated)
         return updated
       })
     }
@@ -189,7 +206,7 @@ export default function ChatPage() {
     e.stopPropagation()
     setConversations((prev) => {
       const updated = prev.filter((c) => c.id !== id)
-      saveConversations(updated)
+      if (username) saveConversations(username, updated)
       return updated
     })
     if (currentIdRef.current === id) startNewChat()
@@ -308,13 +325,23 @@ export default function ChatPage() {
     <div className="flex h-[calc(100vh-65px)]">
       {/* 사이드바 */}
       <div className="w-60 flex-shrink-0 border-r border-gray-200 bg-gray-50 flex flex-col">
-        <div className="p-3 border-b border-gray-200">
+        <div className="p-3 border-b border-gray-200 space-y-2">
           <button
             onClick={startNewChat}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white hover:bg-gray-100 transition-colors"
           >
             <Plus className="w-4 h-4" />
             새 대화
+          </button>
+        </div>
+        <div className="p-3 border-b border-gray-200 flex items-center justify-between">
+          <span className="text-xs text-gray-500 truncate">{username ?? '...'}</span>
+          <button
+            onClick={handleLogout}
+            className="flex-shrink-0 text-gray-400 hover:text-gray-700 transition-colors"
+            title="로그아웃"
+          >
+            <LogOut className="w-4 h-4" />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
